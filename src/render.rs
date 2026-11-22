@@ -289,7 +289,7 @@ impl App {
             lines,
             cursor,
             document: None,
-            title: Some(format!("Bitcalc · {} bits", self.width)),
+            title: Some("Bitcalc".into()),
             pointer_buttons: Vec::new(),
             key_capture: ["Alt+W", "Alt+S", "Alt+H", "Tab", "Shift+Tab", "Ctrl+Z", "Ctrl+Y", "Ctrl+A", "Ctrl+C"]
                 .map(String::from)
@@ -473,8 +473,11 @@ impl App {
                     o.hit(label, "muted", "", Hit::Copy(fmt_), hv);
                 }
                 o.pad(LEFT, "");
-                let role = if part.starts_with('…') && total > MAX_VALUE_LINES && i == n - 1 { "muted" } else { role };
-                o.hit(part, role, "", Hit::Copy(fmt_), hv);
+                let muted = part.starts_with('…') && total > MAX_VALUE_LINES && i == n - 1;
+                let role = if muted { "muted" } else { role };
+                let x0 = o.x;
+                o.styled(part, role, "", fmt_ == Fmt::Hex && !muted, hv == Some(Hit::Copy(fmt_)));
+                o.hits.push((x0 as u16, o.x as u16, Hit::Copy(fmt_)));
                 if i == n - 1
                     && let Some((what, alt)) = extra
                 {
@@ -644,11 +647,6 @@ impl App {
             rows.push(blank());
             let mut o = Out::default();
             o.t("  history", "muted");
-            o.t("   click: load result · double-click: edit · ↑ recalls", "muted");
-            if o.x > w {
-                o = Out::default();
-                o.t("  history", "muted");
-            }
             rows.push(Row::Out(o));
             let expr_w = self.history.iter().map(|e| e.expr.chars().count()).max().unwrap_or(0).min(w / 2).max(12);
             for (i, e) in self.history.iter().enumerate().take(100) {
@@ -708,29 +706,39 @@ impl App {
             place(&mut buf, b);
             b += 4;
         }
-        let mut o = Out::default();
-        let active = self.active_bit().filter(|b| *b >= lo && *b <= hi);
-        match active {
-            Some(a) => {
-                // Clear the neighborhood and show the exact index in accent.
-                let x = bit_x(rb, a - lo);
-                let label = a.to_string();
-                let start = (x + 1).saturating_sub(label.len());
-                let clear_from = start.saturating_sub(1);
-                let clear_to = (x + 2).min(len);
-                for slot in &mut buf[clear_from..clear_to] {
-                    *slot = ' ';
-                }
-                let before: String = buf[..start].iter().collect();
-                let after: String = buf[x + 1..].iter().collect();
-                o.t(&before, "muted").b(&label, "accent").t(&after, "muted");
+        // Exact indices for the selection's ends and the hovered/cursor bit
+        // replace the nearby nibble labels.
+        let mut marks: Vec<u32> = Vec::new();
+        if let Some((a, c)) = self.sel {
+            marks.extend([a.max(c), a.min(c)]);
+        }
+        marks.extend(self.active_bit());
+        let mut accent = vec![false; len];
+        for m in marks.into_iter().filter(|b| *b >= lo && *b <= hi) {
+            let x = bit_x(rb, m - lo);
+            let label = m.to_string();
+            let start = (x + 1).saturating_sub(label.len());
+            for k in start.saturating_sub(1)..(x + 2).min(len) {
+                buf[k] = ' ';
+                accent[k] = false;
             }
-            None => {
-                let s: String = buf.iter().collect();
-                o.t(&s, "muted");
+            for (k, c) in label.chars().enumerate() {
+                buf[start + k] = c;
+                accent[start + k] = true;
             }
         }
-        o.x = len;
+        let mut o = Out::default();
+        let mut i = 0;
+        while i < len {
+            let j = (i..len).find(|k| accent[*k] != accent[i]).unwrap_or(len);
+            let text: String = buf[i..j].iter().collect();
+            if accent[i] {
+                o.b(&text, "accent");
+            } else {
+                o.t(&text, "muted");
+            }
+            i = j;
+        }
         o
     }
 
@@ -866,6 +874,11 @@ impl App {
                 }
                 Some(Hit::WidthChip) => Some(("click to change the width · wheel ±1".into(), "text")),
                 Some(Hit::SignChip) => Some(("click to switch signed / unsigned interpretation".into(), "text")),
+                Some(Hit::History(_)) => Some(("click loads this result  ·  double-click edits the expression  ·  ↑ recalls it".into(), "text")),
+                Some(Hit::FieldName(i)) => self.fields.get(i).map(|f| {
+                    (format!("{} [{}:{}]  ·  click selects it  ·  double-click writes it", f.name, f.hi, f.lo), "text")
+                }),
+                Some(Hit::Var(_)) => Some(("click inserts the name into the expression".into(), "text")),
                 _ => None,
             }
         };
@@ -888,6 +901,10 @@ impl App {
 
     fn help_rows(&self, w: usize) -> Vec<Row> {
         let mut rows = vec![blank()];
+        let mut head = Out::default();
+        head.t("  ", "text").b("Reference", "text").t("   Esc or Alt+H closes · anything else you do closes it too", "muted");
+        rows.push(Row::Out(head));
+        rows.push(blank());
         let section = |rows: &mut Vec<Row>, title: &str, items: &[(&str, &str)]| {
             let mut o = Out::default();
             o.t("  ", "text").b(title, "accent");

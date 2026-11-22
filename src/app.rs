@@ -270,7 +270,7 @@ impl App {
     // ─────────────────────────── helpers ───────────────────────────
 
     pub fn env(&self) -> Env<'_> {
-        Env { width: self.width, signed: self.signed, ans: &self.value, vars: &self.vars, fields: &self.fields }
+        Env { width: self.width, signed: self.signed, ans: &self.value, vars: &self.vars, fields: &self.fields, used_ans: Default::default() }
     }
 
     /// Field targeted by bit actions: the selection, else the bit cursor when
@@ -402,7 +402,10 @@ impl App {
             }
             return;
         }
-        let out = match expr::evaluate(&src, &self.env()) {
+        let env = self.env();
+        let result = expr::evaluate(&src, &env);
+        let edits_value = env.used_ans.get();
+        let out = match result {
             Ok(out) => out,
             Err(e) => {
                 self.failed = true;
@@ -433,6 +436,10 @@ impl App {
             self.overflow = Some((out.value.clone(), need));
         }
         self.prev = std::mem::replace(&mut self.value, ans.clone());
+        // Highlight changed bits only when the value was edited, not replaced.
+        if !(edits_value || out.assign == Some(Target::Ans)) {
+            self.prev = self.value.clone();
+        }
         if self.history.first().is_none_or(|e| e.expr != src || e.value != ans || e.width != self.width) {
             self.history.insert(0, Entry { expr: src.trim().to_string(), value: ans, width: self.width });
             self.history.truncate(HISTORY_LIMIT);
@@ -703,6 +710,9 @@ impl App {
                 return changed;
             }
             "down" | "up" | "drag" | "cancel" => {
+                if ev.kind == "down" && self.hit_at(ev.view_column, ev.view_row) != Some(Hit::HelpChip) {
+                    self.help = false;
+                }
                 self.mouse(ev);
                 return true;
             }
@@ -849,6 +859,17 @@ impl App {
 
     fn key(&mut self, ev: &Event) {
         let text = ev.text.as_deref().unwrap_or("");
+        // Help stays up while typing an expression (it is a reference) but
+        // any action — evaluating, Tab, a shortcut, a command — dismisses it.
+        let keeps_help = match ev.code.as_str() {
+            "char" => !(ev.alt || ev.ctrl()) || (ev.alt && text.eq_ignore_ascii_case("h")),
+            "paste" | "backspace" | "delete" | "left" | "right" | "home" | "end" | "pageUp" | "pageDown" => true,
+            "command" => matches!(text, "copy" | "select_all"),
+            _ => false,
+        };
+        if !keeps_help && ev.code != "escape" {
+            self.help = false;
+        }
         let ctrl = ev.ctrl();
         if ev.code == "command" {
             match text {

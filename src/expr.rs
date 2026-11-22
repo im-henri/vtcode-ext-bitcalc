@@ -50,6 +50,8 @@ pub struct Env<'a> {
     pub ans: &'a BigUint,
     pub vars: &'a BTreeMap<String, Var>,
     pub fields: &'a [Field],
+    /// Set during evaluation when the current value (or a field of it) is read.
+    pub used_ans: std::cell::Cell<bool>,
 }
 
 impl Env<'_> {
@@ -726,9 +728,13 @@ fn eval(e: &Expr, env: &Env) -> Result<V> {
             "Fractions are only accepted by f16(), bf16(), f32() and f64()",
             *pos,
         )),
-        Expr::Ans => Ok(V::new(read_word(env.ans, env.width, env.signed), Some(env.width))),
+        Expr::Ans => Ok({
+            env.used_ans.set(true);
+            V::new(read_word(env.ans, env.width, env.signed), Some(env.width))
+        }),
         Expr::Var(name, _) if env.field(name).is_some() => {
             let f = env.field(name).unwrap();
+            env.used_ans.set(true);
             let n = f.hi - f.lo + 1;
             Ok(V::new(BigInt::from(truncate(&BigInt::from(env.ans >> f.lo), n)), Some(n)))
         }

@@ -9,7 +9,7 @@ fn eval_w(src: &str, width: u32, signed: bool) -> Result<String, String> {
     vars.insert("x".to_string(), Var { value: BigUint::from(0xA5u32), width: 8 });
     vars.insert("neg".to_string(), Var { value: BigUint::from(0xFFu32), width: 8 });
     let fields = expr::parse_fields("hi8[31:24] lo4[3:0]").unwrap();
-    let env = Env { width, signed, ans: &ans, vars: &vars, fields: &fields };
+    let env = Env { width, signed, ans: &ans, vars: &vars, fields: &fields, used_ans: Default::default() };
     expr::evaluate(src, &env)
         .map(|o| format!("{:X}", expr::truncate(&o.value, width)))
         .map_err(|e| e.message)
@@ -139,7 +139,7 @@ fn functions() {
 fn error_positions() {
     let env_ans = BigUint::from(0u32);
     let vars = BTreeMap::new();
-    let env = Env { width: 32, signed: false, ans: &env_ans, vars: &vars, fields: &[] };
+    let env = Env { width: 32, signed: false, ans: &env_ans, vars: &vars, fields: &[], used_ans: Default::default() };
     let e = expr::evaluate("1 + foo", &env).unwrap_err();
     assert_eq!(e.pos, Some(4));
     let e = expr::evaluate("(1 + 2", &env).unwrap_err();
@@ -433,4 +433,51 @@ fn drag_from_a_gap_still_selects() {
     let (x, y) = hit_pos(&mut a, Hit::Bit(8));
     // The column right of bit 8 is a byte gap.
     assert_eq!(a.hit_at(x + 1, y), Some(Hit::Bit(8)));
+}
+
+#[test]
+fn help_stays_while_typing_and_closes_on_actions() {
+    let mut a = app();
+    a.event(&Event { alt: true, ..Event::ch('h') });
+    assert!(a.help);
+    for c in "0x10".chars() {
+        a.event(&Event::ch(c));
+    }
+    a.event(&Event::key("backspace"));
+    assert!(a.help, "typing keeps the reference open");
+    a.event(&Event::key("enter"));
+    assert!(!a.help, "evaluating closes it");
+    assert_eq!(hex(&a), "1");
+
+    a.event(&Event { alt: true, ..Event::ch('h') });
+    a.event(&Event::key("tab"));
+    assert!(!a.help, "Tab closes it");
+
+    a.event(&Event { alt: true, ..Event::ch('h') });
+    let (x, y) = hit_pos(&mut a, Hit::SignChip);
+    a.event(&Event::mouse("down", x, y));
+    assert!(!a.help, "clicking elsewhere closes it");
+
+    let (x, y) = hit_pos(&mut a, Hit::HelpChip);
+    a.event(&Event::mouse("down", x, y));
+    assert!(a.help, "the help chip toggles it");
+    a.event(&Event { alt: true, ..Event::ch('h') });
+    assert!(!a.help);
+}
+
+#[test]
+fn frame_title_is_short() {
+    let mut a = app();
+    assert_eq!(a.render().title.as_deref(), Some("Bitcalc"));
+}
+
+#[test]
+fn changed_bits_only_for_edits() {
+    let mut a = app();
+    run(&mut a, "0xF0");
+    assert_eq!(a.prev, a.value, "a fresh value is not a change");
+    run(&mut a, "ans | 1");
+    assert_eq!(a.prev, BigUint::from(0xF0u32));
+    run(&mut a, "[3:0] = 0xF");
+    assert_eq!(a.prev, BigUint::from(0xF1u32));
 }
