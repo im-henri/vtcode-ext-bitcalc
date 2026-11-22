@@ -87,6 +87,7 @@ def main():
         dest = workspace / ".vtcode" / "extensions" / "bitcalc"
         dest.mkdir(parents=True, exist_ok=True)
         for name in json.loads((source / "package-files.json").read_text(encoding="utf-8")):
+            (dest / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / name, dest / name)
         print(f"Installed {dest}. Run Extensions: Reload, then Bitcalc: Open Calculator.")
 
