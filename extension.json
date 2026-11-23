@@ -1,7 +1,8 @@
 {
   "id": "vtcode.bitcalc",
   "name": "Bitcalc",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "repository": "https://github.com/im-henri/vtcode-ext-bitcalc",
   "description": "Arbitrary-width programmer's calculator: any bit width, Verilog-style slices and concatenation, clickable bits and fields.",
   "apiVersion": "2",
   "main": "bitcalc.wasm",
