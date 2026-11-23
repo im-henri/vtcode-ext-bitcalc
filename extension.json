@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "description": "Arbitrary-width programmer's calculator: any bit width, Verilog-style slices and concatenation, clickable bits and fields.",
   "apiVersion": "2",
-  "main": "bitcalc.wasm"
+  "main": "bitcalc.wasm",
+  "buttons": [{ "command": "bitcalc.open" }]
 }
